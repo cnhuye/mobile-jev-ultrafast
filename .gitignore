@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Run outputs and scratch files
+artifacts/
+frames/
+*.tmp
+
+# Local-only working notes. Kept on disk for development, never pushed.
+docs/
+
+# Stray captures dropped at the repo root. README assets under
+# docs/images/ are intentionally kept.
+/*.jpg
+/*.png
+/*.json

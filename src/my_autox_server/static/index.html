@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="demo-token" content="__TOKEN__" />
+    <title>my-autox-server · Phone Agent</title>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a href="/" aria-label="Homepage" class="brand"
+        >autox<span>mcp</span> <i>×</i> TypeSafe</a
+      >
+      <div class="local"><span class="dot"></span> my-autox-server</div>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">A PHONE THAT CHOOSES</p>
+          <h1>Every screen is a set of possibilities.</h1>
+          <p>
+            Jev picks the next action. A small language model handles the words.
+            AutoX.js MCP delivers every observation and mutation.
+          </p>
+        </div>
+        <div class="model-tag">jev-latest <span>+ text helper</span></div>
+      </section>
+      <form id="task-form">
+        <div class="task-label">
+          <label for="goal">Give it a task</label
+          ><select id="scenario" name="scenario" aria-label="Demo scenario">
+            <option value="search">Catalog search</option>
+            <option value="settings">Settings → About</option>
+          </select>
+        </div>
+        <div class="task-row">
+          <textarea id="goal" name="goal" rows="5">
+Open the catalog search and type "iPhone 15 case", then stop when results are showing.</textarea
+          ><button type="submit" id="start" class="primary">
+            Start demo <span>↗</span>
+          </button>
+        </div>
+      </form>
+      <div class="toolbar">
+        <div class="status">
+          <span class="dot" id="status-dot"></span
+          ><span id="status" role="status">Ready to explore</span>
+        </div>
+        <div class="controls"><label class="overlay-control"><input name="pace" id="pace" type="checkbox"> Slow motion</label>
+          <label class="overlay-control"
+            ><input name="overlays" id="overlays" type="checkbox" checked />
+            Targets</label
+          ><button type="button" id="choose" disabled>Choose next</button
+          ><button type="button" id="execute" disabled>Execute choice</button
+          ><button type="button" id="auto" disabled>Run automatically</button
+          ><button type="button" id="stop" hidden>Pause</button>
+        </div>
+      </div>
+      <div id="error" role="alert" hidden></div>
+      <section class="workspace">
+        <div class="phone-panel">
+          <div class="phone-bar">
+            <div class="traffic"><b></b><b></b><b></b></div>
+            <span id="url">Local demo phone</span
+            ><span class="live">LIVE</span>
+          </div>
+          <div class="viewport" id="viewport">
+            <div class="empty" id="empty">
+              <p class="empty-symbol">[ ↗ ]</p>
+              <h2>Watch the decision happen.</h2>
+              <p>
+                Start a task to see the live screen,<br />its available
+                actions, and the model's choice.
+              </p>
+            </div>
+            <img
+              id="screenshot"
+              alt="Live screenshot of the controlled phone"
+              hidden
+            />
+            <div id="targets"></div>
+          </div>
+          <div class="phone-footer">
+            <span id="page-title">Isolated demo device</span
+            ><span>UI tree → typed actions → MCP</span>
+          </div>
+        </div>
+        <aside>
+          <div class="aside-header">
+            <div>
+              <p class="eyebrow">NEXT ACTION</p>
+              <h2 id="choice-title">Waiting for a screen</h2>
+            </div>
+            <span id="action-count">0 options</span>
+          </div>
+          <div id="plan" class="plan"></div>
+          <div class="metrics">
+            <div><span>Decision time</span><strong id="latency">—</strong></div>
+            <div>
+              <span>Target confidence</span><strong id="confidence">—</strong>
+            </div>
+            <div>
+              <span>Operation</span
+              ><strong id="completion">—</strong>
+            </div>
+          </div>
+          <div id="operation-choices" class="operation-choices"></div>
+          <p class="distribution-label">
+            Indexed elements
+            <span id="ranking-note">Choose next to rank</span>
+          </p>
+          <div id="choices" class="choices">
+            <p class="muted">Available actions will appear here.</p>
+          </div>
+          <p class="aside-note">
+            Operation and target are separate choices in one request.<br />Text is generated only for TYPE_TEXT.
+          </p>
+        </aside>
+      </section>
+      <section class="trace">
+        <div class="trace-heading">
+          <h2>Decision trail <span id="step-count">0 actions</span></h2>
+          <button type="button" id="download" disabled>Export trace ↓</button>
+        </div>
+        <div id="history">
+          <p class="muted">Each executed action leaves an observed result.</p>
+        </div>
+      </section>
+      <details>
+        <summary>What the model sees</summary>
+        <pre id="model-state">
+Start a demo to inspect its structured state.</pre>
+      </details>
+      <footer>
+        <span>AutoX · Phone Agent · Experimental</span
+        ><span id="helper">Text helper loading</span>
+      </footer>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
