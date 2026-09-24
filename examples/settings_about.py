@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 
-from my_autox_server import Agent, FakeAutoX, MCPClient
+from mobile_jev_ultrafast import Agent, FakeAutoX, MCPClient
 
 GOAL = (
     "Open the Settings app, scroll if needed, and tap the 'About phone' "

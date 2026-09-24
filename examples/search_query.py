@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 
-from my_autox_server import Agent, FakeAutoX
+from mobile_jev_ultrafast import Agent, FakeAutoX
 
 
 def main() -> None:

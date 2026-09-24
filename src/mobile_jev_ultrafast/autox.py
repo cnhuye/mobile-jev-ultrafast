@@ -7,7 +7,7 @@ browser harness over CDP is replaced by an AutoX.js client over MCP.
 Two implementations live here:
 
 * :class:`AutoX` — connects to the phone via
-  :class:`my_autox_server.mcp_client.MCPClient`.
+  :class:`mobile_jev_ultrafast.mcp_client.MCPClient`.
 * :class:`FakeAutoX` — returns a hand-crafted mock so the inspector,
   agent loop, and unit tests run without a device on the network. Set
   ``AGENT_USE_FAKE=1`` (or pass ``fake=True``) to pick this backend.
@@ -873,7 +873,7 @@ _MOCK_SCREENS = {
     "about": {
         "activity": "com.example.app.AboutActivity",
         "title": "Demo · About",
-        "text": "About\nmy-autox-server 0.1.0\nAndroid version: 14",
+        "text": "About\nmobile-jev-ultrafast 0.1.0\nAndroid version: 14",
         "actions": [],
     },
 }

@@ -25,7 +25,7 @@ import argparse
 import os
 import sys
 
-from my_autox_server.mcp_client import MCPClient
+from mobile_jev_ultrafast.mcp_client import MCPClient
 
 ENABLE_SCREEN_CAPTURE = r'''"auto";
 // Trigger Android's MediaProjection prompt. After the user accepts,

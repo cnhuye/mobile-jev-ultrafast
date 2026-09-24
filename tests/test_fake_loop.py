@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from my_autox_server import Agent, FakeAutoX
-from my_autox_server.autox import _build_actions, _build_text
+from mobile_jev_ultrafast import Agent, FakeAutoX
+from mobile_jev_ultrafast.autox import _build_actions, _build_text
 
 
 def _mock_node(role="button", label="Search", value="", bounds=(60, 200, 1020, 280)):

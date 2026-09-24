@@ -32,7 +32,7 @@ import json
 import os
 from pathlib import Path
 
-from my_autox_server import Agent, FakeAutoX
+from mobile_jev_ultrafast import Agent, FakeAutoX
 
 # Goal chosen so the scripted backend can satisfy it deterministically:
 # the *last* content noun ("about") appears in the URL of the target
@@ -61,7 +61,7 @@ def verify(page: dict) -> dict:
         "title_has_about": "about" in title,
         "text_has_version": any(
             indicator in text
-            for indicator in ("version", "build", "0.1.0", "my-autox-server")
+            for indicator in ("version", "build", "0.1.0", "mobile-jev-ultrafast")
         ),
     }
     return {

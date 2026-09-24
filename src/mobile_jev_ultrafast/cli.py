@@ -4,7 +4,7 @@
     uv run autox-run --fake "Open Settings and tap About"
     uv run autox-run --show-elements "打开微信，切到通讯录"
 
-Unlike :mod:`my_autox_server.demo` (a browser inspector) this is a plain
+Unlike :mod:`mobile_jev_ultrafast.demo` (a browser inspector) this is a plain
 command-line loop: it prints one line per decision, exits non-zero when
 the run blocks or errors, and can dump machine-readable state for CI.
 

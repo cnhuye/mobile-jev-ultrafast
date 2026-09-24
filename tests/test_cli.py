@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from my_autox_server import cli
+from mobile_jev_ultrafast import cli
 
 # ---------------------------------------------------------------------------
 # .env handling
@@ -122,7 +122,7 @@ def test_cli_missing_goal_is_rejected(monkeypatch):
 
 
 def test_cli_max_steps_is_honoured(monkeypatch, capsys):
-    from my_autox_server import agent as agent_module
+    from mobile_jev_ultrafast import agent as agent_module
 
     original = agent_module.MAX_STEPS
     try:

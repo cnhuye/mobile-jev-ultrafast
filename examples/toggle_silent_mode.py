@@ -28,7 +28,7 @@ import os
 import time
 from pathlib import Path
 
-from my_autox_server import Agent, FakeAutoX
+from mobile_jev_ultrafast import Agent, FakeAutoX
 
 # 手机上三个模式的文案 -> 规范化名。UI 是中文，但 Jev 也可能看到英文，
 # 所以两边都收。
@@ -125,7 +125,7 @@ def run(args) -> int:
 
     # ---- 前置：回到桌面，读初始模式 ----
     if not args.fake:
-        from my_autox_server import AutoX
+        from mobile_jev_ultrafast import AutoX
 
         probe_device = AutoX(args.label)
         probe_device.mcp.run_script('"auto"; home();', name="go-home", timeout_millis=4000)
@@ -180,7 +180,7 @@ def run(args) -> int:
     if args.fake:
         final = read_mode(device, live=False)
     else:
-        from my_autox_server import AutoX
+        from mobile_jev_ultrafast import AutoX
 
         probe_device = AutoX(args.label)
         final = read_mode(probe_device, live=True)

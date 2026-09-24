@@ -1,6 +1,6 @@
-"""Make ``import my_autox_server`` work under ``uv run pytest``.
+"""Make ``import mobile_jev_ultrafast`` work under ``uv run pytest``.
 
-The package lives in ``src/my_autox_server``. ``pytest.ini`` already pins
+The package lives in ``src/mobile_jev_ultrafast``. ``pytest.ini`` already pins
 ``rootdir = .`` so test collection stays inside this project; we just
 need the import path to resolve.
 """

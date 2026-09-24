@@ -18,7 +18,7 @@ import os
 import sys
 from pathlib import Path
 
-from my_autox_server.mcp_client import MCPClient
+from mobile_jev_ultrafast.mcp_client import MCPClient
 
 CRITICAL_TOOLS = {
     "perception": {"get_ui_tree", "screenshot", "device_info"},

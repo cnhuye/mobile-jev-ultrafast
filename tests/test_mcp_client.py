@@ -13,7 +13,7 @@ import json
 import httpx
 import pytest
 
-from my_autox_server.mcp_client import MCPClient, _flatten_ocr
+from mobile_jev_ultrafast.mcp_client import MCPClient, _flatten_ocr
 
 
 def _ui_tree_fixture() -> dict:

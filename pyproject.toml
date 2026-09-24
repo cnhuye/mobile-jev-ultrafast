@@ -8,15 +8,15 @@ requires-python = ">=3.12"
 dependencies = ["httpx[http2]>=0.28,<1"]
 
 [project.scripts]
-autox = "my_autox_server.demo:main"
-autox-run = "my_autox_server.cli:main"
+autox = "mobile_jev_ultrafast.demo:main"
+autox-run = "mobile_jev_ultrafast.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/my_autox_server"]
+packages = ["src/mobile_jev_ultrafast"]
 
 [dependency-groups]
 dev = ["pytest>=8.4,<9", "ruff>=0.14,<1"]

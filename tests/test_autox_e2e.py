@@ -13,14 +13,14 @@ import json
 
 import httpx
 
-from my_autox_server.autox import (
+from mobile_jev_ultrafast.autox import (
     AutoX,
     _classify,
     _interaction_flags,
     _node_id,
     _node_kind,
 )
-from my_autox_server.mcp_client import MCPClient
+from mobile_jev_ultrafast.mcp_client import MCPClient
 
 _COMPACT_TREE = {
     "p": "com.android.settings",

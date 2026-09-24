@@ -178,7 +178,7 @@ def main():
     load_environment()
     atexit.register(close_agent)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"my-autox-server: {ORIGIN}", flush=True)
+    print(f"mobile-jev-ultrafast: {ORIGIN}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

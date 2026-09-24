@@ -184,7 +184,7 @@ class MCPClient:
             "params": {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
-                "clientInfo": {"name": "my-autox-server", "version": "0.1.0"},
+                "clientInfo": {"name": "mobile-jev-ultrafast", "version": "0.1.0"},
             },
         }
         try:

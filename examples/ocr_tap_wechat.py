@@ -28,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-from my_autox_server.autox import AutoX
+from mobile_jev_ultrafast.autox import AutoX
 
 
 def _save_screenshot(b64: str, out: Path) -> bool:

@@ -15,7 +15,7 @@ the current, already-working behaviour).
 
 from __future__ import annotations
 
-from my_autox_server.autox import (
+from mobile_jev_ultrafast.autox import (
     _build_actions,
     _classify,
     _interaction_flags,

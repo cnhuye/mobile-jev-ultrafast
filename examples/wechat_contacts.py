@@ -38,7 +38,7 @@ import sys
 import time
 from pathlib import Path
 
-from my_autox_server.mcp_client import MCPClient
+from mobile_jev_ultrafast.mcp_client import MCPClient
 
 WECHAT_PACKAGE = "com.tencent.mm"
 

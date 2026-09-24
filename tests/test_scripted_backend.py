@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from my_autox_server import FakeAutoX
-from my_autox_server.model import _choose_scripted, field_text
+from mobile_jev_ultrafast import FakeAutoX
+from mobile_jev_ultrafast.model import _choose_scripted, field_text
 
 
 @pytest.fixture(autouse=True)
@@ -119,7 +119,7 @@ def test_choose_agent_loop_walks_settings_to_about_with_fake():
     This is the same path the verified demo will exercise against a
     real phone, but runs with no MCP server and no API key.
     """
-    from my_autox_server import Agent
+    from mobile_jev_ultrafast import Agent
 
     fake = FakeAutoX()
     with Agent("demo://settings", "Open Settings, tap About, stop when shown.", device=fake) as agent:
@@ -140,7 +140,7 @@ def test_choose_prefers_next_sibling_when_a_radio_is_checked():
     The demo ``examples/toggle_silent_mode.py --fake`` depends on
     advancing exactly one slot each iteration; this test guards it.
     """
-    from my_autox_server.autox import _mock_action_dict, _ring_mode_screen
+    from mobile_jev_ultrafast.autox import _mock_action_dict, _ring_mode_screen
 
     page_actions = [
         _mock_action_dict(m) for m in _ring_mode_screen("silent")["actions"]
@@ -171,7 +171,7 @@ def test_choose_prefers_next_sibling_when_a_radio_is_checked():
 
 def test_choose_wraps_around_when_checked_radio_is_last():
     """Clicking past the end of the radio list wraps to the first sibling."""
-    from my_autox_server.autox import _mock_action_dict, _ring_mode_screen
+    from mobile_jev_ultrafast.autox import _mock_action_dict, _ring_mode_screen
 
     page_actions = [
         _mock_action_dict(m) for m in _ring_mode_screen("sound")["actions"]
@@ -200,7 +200,7 @@ def test_choose_wraps_around_when_checked_radio_is_last():
 
 def test_choose_does_not_cycle_when_no_radio_is_checked():
     """Without a checked row the cycle rule shouldn't fire."""
-    from my_autox_server.autox import _mock_action_dict, _ring_mode_screen
+    from mobile_jev_ultrafast.autox import _mock_action_dict, _ring_mode_screen
 
     page_actions = [
         {**_mock_action_dict(m), "checked": "false"}
@@ -229,7 +229,7 @@ def test_choose_does_not_cycle_when_no_radio_is_checked():
 
 def test_goal_keywords_are_cjk_aware():
     """Chinese has no spaces; splitting must still yield matchable tokens."""
-    from my_autox_server.model import _goal_keywords
+    from mobile_jev_ultrafast.model import _goal_keywords
 
     tokens = _goal_keywords("点击「响铃」。")
     # The whole run, its characters, and its bigrams all appear, so a
@@ -242,7 +242,7 @@ def test_goal_keywords_are_cjk_aware():
 
 
 def test_scripted_backend_matches_chinese_labels():
-    from my_autox_server.autox import _mock_action_dict, _ring_mode_screen
+    from mobile_jev_ultrafast.autox import _mock_action_dict, _ring_mode_screen
 
     page_actions = [_mock_action_dict(m) for m in _ring_mode_screen("silent")["actions"]]
     for index, action in enumerate(page_actions, start=1):

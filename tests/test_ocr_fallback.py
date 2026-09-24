@@ -15,14 +15,14 @@ import json
 import httpx
 import pytest
 
-from my_autox_server.autox import (
+from mobile_jev_ultrafast.autox import (
     MIN_REAL_ACTIONS,
     AutoX,
     _build_ocr_actions,
     _is_sparse_ui,
     _ocr_rect,
 )
-from my_autox_server.mcp_client import MCPClient
+from mobile_jev_ultrafast.mcp_client import MCPClient
 
 # ---- helpers --------------------------------------------------------------
 
