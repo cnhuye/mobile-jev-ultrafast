@@ -98,6 +98,7 @@ echo "打开设置，把铃声模式切换成振动" | uv run autox-run  # 从 s
 | 参数 | 作用 |
 |------|------|
 | `--show-elements` | 打印 Jev 实际看到的编号元素表 |
+| `-v` / `-vv` / `-vvv` | 详细日志：每步观察/决策/动作 / 再加 Jev+辅助 LLM 完整请求与返回 / 再加元素表与死锁窗口（输出到 stderr） |
 | `--ocr` | 打开 OCR fallback，用于微信这类屏蔽无障碍的 App |
 | `--max-steps N` | 调整行动预算（默认 60） |
 | `--settle S` | 点击后停顿，避免下一步观察到过渡中的旧界面（默认 0.35s） |
@@ -106,6 +107,13 @@ echo "打开设置，把铃声模式切换成振动" | uv run autox-run  # 从 s
 | `--quiet` | 只打摘要 |
 
 `.env` 会自动从当前目录或任意上层目录加载，`--no-env` 可以关掉。
+
+详细日志走 **stderr**，所以 `--json` 的 stdout 依然是一个干净的 JSON：
+
+```bash
+uv run autox-run -v  "手机屏幕上滑1下"           # 每步：观察 → 决策 → 动作 → 是否换屏
+uv run autox-run -vv "手机屏幕上滑1下" 2>trace.log  # 再加发给 Jev / 辅助 LLM 的完整请求与返回
+```
 
 ### 看一次运行到底发生了什么
 

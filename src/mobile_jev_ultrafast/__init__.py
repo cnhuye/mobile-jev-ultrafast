@@ -8,8 +8,9 @@ guarantees; the model never sees selectors, coordinates, or executable
 shell code.
 """
 
+from . import verbose
 from .agent import Agent
 from .autox import AutoX, FakeAutoX, StalePage
 from .mcp_client import MCPClient
 
-__all__ = ["Agent", "AutoX", "FakeAutoX", "MCPClient", "StalePage"]
+__all__ = ["Agent", "AutoX", "FakeAutoX", "MCPClient", "StalePage", "verbose"]

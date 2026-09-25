@@ -499,7 +499,75 @@ class MCPClient:
     # ---- app/script control -----------------------------------------
 
     def app_control(self, action: str, package: str) -> dict:
-        return self.call_tool("app_control", {"action": action, "package": package})
+        # MCP schema requires ``packageName`` (not ``package``); see
+        # ``docs/MCP_USAGE.md`` and ``my-autox/docs/MCP_ENHANCEMENTS_REQUIREMENTS_20260925.md``.
+        return self.call_tool("app_control", {"action": action, "packageName": package})
+
+    # ------------------------------------------------------------------
+    # System key helpers. We delegate to ``run_script`` so the AutoX.js
+    # runtime's accessibility-driven keyevent path is used (it dispatches
+    # on the foreground window, not the AutoX process). Each helper waits
+    # long enough for the system to settle; the agent loop adds another
+    # ``settle_s`` on top when it observes.
+    # ------------------------------------------------------------------
+
+    def press_home(self) -> dict:
+        """Send ``KEYCODE_HOME`` via AutoX.js's ``home()`` global."""
+        return self.run_script('"auto"; home();', name="press_home", timeout_millis=4000)
+
+    def press_back(self) -> dict:
+        """Send ``KEYCODE_BACK`` via AutoX.js's ``back()`` global."""
+        return self.run_script('"auto"; back();', name="press_back", timeout_millis=4000)
+
+    def press_recents(self) -> dict:
+        """Send ``KEYCODE_RECENTS`` via AutoX.js's ``recents()`` global."""
+        return self.run_script('"auto"; recents();', name="press_recents", timeout_millis=4000)
+
+    def send_keyevent(self, code: int) -> dict:
+        """Dispatch an arbitrary Android keycode.
+
+        Uses ``keycode(N)`` so the value is routed through the runtime's
+        accessibility pipeline, not via ``adb shell input`` (which needs
+        the AutoX shell plugin to be enabled).
+        """
+        return self.run_script(
+            f'"auto"; keycode({int(code)});', name=f"keycode_{int(code)}", timeout_millis=4000
+        )
+
+    def installed_apps(self) -> list[dict]:
+        """Return ``[{label, package_name, system}, ...]`` for installed apps.
+
+        Surfaces the ``list_apps`` MCP tool. The MCP response includes a
+        ``system`` boolean and a label; we pass both through so the
+        :func:`mobile_jev_ultrafast.llm.plan_task` helper can filter out
+        system apps if it wants to.
+        """
+        try:
+            result = self.call_tool("list_apps", {"limit": 200})
+        except RuntimeError:
+            return []
+        data = self._extract(result)
+        rows = []
+        if isinstance(data, dict):
+            rows = data.get("apps") or data.get("result") or []
+        elif isinstance(data, list):
+            rows = data
+        out: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            label = row.get("label") or row.get("name") or ""
+            pkg = row.get("packageName") or row.get("package") or ""
+            if not label or not pkg:
+                continue
+            out.append(
+                {
+                    "label": str(label).strip(),
+                    "package": str(pkg).strip(),
+                    "system": bool(row.get("system")),
+                }
+            )
+        return out
 
     def run_script(self, script: str, *, name: str | None = None,
                    mode: str = "v7", timeout_millis: int = 20000) -> dict:

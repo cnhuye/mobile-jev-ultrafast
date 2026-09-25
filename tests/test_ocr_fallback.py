@@ -105,10 +105,12 @@ def _make_autox(ocr_entries, *, ocr_fallback=False, ui_tree=_EMPTY_TREE):
     """Build an AutoX that reports an empty UI tree + OCR data."""
     # Responses served in order:
     #   [0] device_info for display_size
-    #   [1] get_ui_tree (the empty tree)
-    #   [2] ocr (when fallback is enabled)
+    #   [1] list_apps (LAUNCH_APP probe at construction time)
+    #   [2] get_ui_tree (the empty tree)
+    #   [3] ocr (when fallback is enabled)
     queue = [
         _ok({}),  # device_info
+        _ok({"count": 0, "apps": []}),  # list_apps
         _ok(ui_tree),  # get_ui_tree
     ]
     if ocr_entries is not None:
@@ -227,7 +229,7 @@ def test_observe_with_fallback_skips_ocr_when_tree_is_rich():
             },
         ],
     }
-    queue = [_ok({}), _ok(rich_tree)]
+    queue = [_ok({}), _ok({"count": 0, "apps": []}), _ok(rich_tree)]
     transport = _MockTransport(queue)
     http = httpx.Client(http2=False, timeout=5, transport=transport)
     client = MCPClient("http://mcp.test/mcp", initialize=False, client=http)

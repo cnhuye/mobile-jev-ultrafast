@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import time
 from dataclasses import dataclass
 
@@ -42,6 +44,31 @@ _BLANK_SCREENSHOT = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
     "+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+
+# Default swipe duration (ms). 400ms gives Android's GestureDescription a
+# ``distance/duration`` ratio that survives both fling-style RecyclerView
+# scrollers and Compose lazy lists — the original 300ms sometimes
+# triggers fling and gets ignored by lazy columns. Tunable via
+# ``AUTOX_SWIPE_DURATION``.
+_SWIPE_DURATION_DEFAULT_MS = 400
+
+
+def _swipe_duration_ms() -> int:
+    """Resolve the swipe duration from ``AUTOX_SWIPE_DURATION``.
+
+    Accepts positive integers in milliseconds. Falls back to
+    :data:`_SWIPE_DURATION_DEFAULT_MS` for unset / malformed values
+    rather than crashing the act loop.
+    """
+    raw = os.environ.get("AUTOX_SWIPE_DURATION")
+    if not raw:
+        return _SWIPE_DURATION_DEFAULT_MS
+    try:
+        ms = int(raw)
+    except (TypeError, ValueError):
+        return _SWIPE_DURATION_DEFAULT_MS
+    return ms if ms > 0 else _SWIPE_DURATION_DEFAULT_MS
 
 
 # AutoX's compact UI tree nests children under each node. The walker
@@ -338,7 +365,7 @@ def _sibling_label(node, parent) -> str:
     return ""
 
 
-def _build_actions(ui_tree: dict) -> list:
+def _build_actions(ui_tree: dict, *, launch_apps: list[dict] | None = None) -> list:
     actions: list = []
     counter = 0
     seen_bounds: set = set()
@@ -411,42 +438,229 @@ def _build_actions(ui_tree: dict) -> list:
                     "rect": _bounds_rect(b),
                 }
             )
-    actions.extend(_synthetic_actions())
+    actions.extend(_synthetic_actions(launch_apps=launch_apps))
     return actions
 
 
-def _synthetic_actions() -> list:
-    return [
-        {
-            "id": "scroll_down",
-            "kind": "scroll",
-            "label": "Scroll down",
-            "delta": 600,
-            "node": -1,
-            "role": "scroll",
-            "value": "",
-            "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
-        },
-        {
-            "id": "scroll_up",
-            "kind": "scroll",
-            "label": "Scroll up",
-            "delta": -600,
-            "node": -1,
-            "role": "scroll",
-            "value": "",
-            "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
-        },
-        {
-            "id": "wait",
-            "kind": "wait",
-            "label": "Wait for the screen to update",
-            "node": -1,
-            "role": "wait",
-            "value": "",
-            "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
-        },
-    ]
+# Curated list of system / common apps that are almost always useful on a
+# stock Android phone. Surfaced as ``launch_<package>`` synthetic actions
+# on every observation so Jev can call LAUNCH_APP without first having
+# to enumerate installed apps. The full installed-app list is added on
+# top when ``AutoX.launch_apps`` is populated (see ``_build_actions``).
+#
+# Each entry is ``(package_name, label_zh, label_en)``. We expose both
+# labels so Jev can pick by either language; the match is keyword-based
+# against the goal string at action-build time.
+_KNOWN_APPS: list[tuple[str, str, str]] = [
+    ("com.android.settings", "设置", "Settings"),
+    ("com.android.dialer", "电话", "Phone"),
+    ("com.android.contacts", "联系人", "Contacts"),
+    ("com.android.messaging", "短信", "Messages"),
+    ("com.android.camera", "相机", "Camera"),
+    ("com.android.deskclock", "时钟", "Clock"),
+    ("com.android.calendar", "日历", "Calendar"),
+    ("com.android.browser", "浏览器", "Browser"),
+    ("com.android.gallery3d", "相册", "Gallery"),
+    ("com.android.documentsui", "文件", "Files"),
+    ("com.android.systemui", "系统界面", "System UI"),
+    ("com.android.launcher3", "桌面", "Launcher"),
+    # Tencent
+    ("com.tencent.mm", "微信", "WeChat"),
+    ("com.tencent.mobileqq", "QQ", "QQ"),
+    # Alibaba
+    ("com.taobao.taobao", "淘宝", "Taobao"),
+    ("com.eg.android.AlipayGphone", "支付宝", "Alipay"),
+    ("com.alibaba.intl.android.apps.poseidon", "速卖通", "AliExpress"),
+    # ByteDance
+    ("com.ss.android.ugc.aweme", "抖音", "Douyin"),
+    ("com.ss.android.lark", "飞书", "Lark"),
+    # Google (if installed)
+    ("com.google.android.apps.maps", "地图", "Maps"),
+    ("com.google.android.gm", "Gmail", "Gmail"),
+    ("com.google.android.youtube", "YouTube", "YouTube"),
+    ("com.google.android.apps.photos", "相册", "Photos"),
+]
+
+
+def _launch_actions(extra_apps: list[dict] | None = None) -> list:
+    """Build the LAUNCH_APP synthetic action table.
+
+    ``extra_apps`` (optional) merges installed apps pulled from the phone
+    via :meth:`MCPClient.installed_apps`. Each entry adds one
+    ``launch_<package>`` action whose label is the app's display label.
+    Duplicates against :data:`_KNOWN_APPS` are dropped by package name.
+    """
+    actions: list = []
+    seen: set[str] = set()
+
+    def _add(pkg: str, label: str) -> None:
+        if not pkg or pkg in seen:
+            return
+        seen.add(pkg)
+        actions.append(
+            {
+                "id": f"launch_{pkg}",
+                "kind": "launch",
+                "role": "app",
+                "label": f"启动 {label}" if re.search(r"[\u4e00-\u9fff]", label) else f"Launch {label}",
+                "value": pkg,
+                "node": f"launch-{pkg}",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            }
+        )
+
+    for pkg, label_zh, label_en in _KNOWN_APPS:
+        _add(pkg, label_zh or label_en)
+    if extra_apps:
+        for row in extra_apps:
+            pkg = (row.get("package") or "").strip()
+            label = (row.get("label") or "").strip()
+            if not pkg or row.get("system"):
+                continue
+            _add(pkg, label or pkg)
+    return actions
+
+
+def _synthetic_actions(launch_apps: list[dict] | None = None) -> list:
+    """The always-available controls.
+
+    Order matters: model sees them as candidates for ``BLOCKED``
+    fallback, so the most useful one (LAUNCH_APP) is listed first.
+    """
+    actions: list = list(_launch_actions(launch_apps))
+    actions.extend(
+        [
+            {
+                "id": "press_home",
+                "kind": "key",
+                "label": "按 Home 键回到桌面",
+                "node": -1,
+                "role": "key",
+                "key": "home",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "press_back",
+                "kind": "key",
+                "label": "按返回键",
+                "node": -1,
+                "role": "key",
+                "key": "back",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "press_recents",
+                "kind": "key",
+                "label": "按最近任务键",
+                "node": -1,
+                "role": "key",
+                "key": "recents",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "swipe_left",
+                "kind": "swipe",
+                "label": "向左滑动（桌面/列表翻页）",
+                "direction": "left",
+                "node": -1,
+                "role": "swipe",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "swipe_right",
+                "kind": "swipe",
+                "label": "向右滑动（返回手势 / 桌面上一页）",
+                "direction": "right",
+                "node": -1,
+                "role": "swipe",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "double_tap",
+                "kind": "double_tap",
+                "label": "双击屏幕中心",
+                "node": -1,
+                "role": "gesture",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "scroll_down",
+                "kind": "scroll",
+                "label": "向下滚动",
+                "delta": 600,
+                "node": -1,
+                "role": "scroll",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "scroll_up",
+                "kind": "scroll",
+                "label": "向上滚动",
+                "delta": -600,
+                "node": -1,
+                "role": "scroll",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "wait",
+                "kind": "wait",
+                "label": "等待界面刷新",
+                "node": -1,
+                "role": "wait",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                "id": "wait_long",
+                "kind": "wait",
+                "label": "等待 2 秒（动画/启动）",
+                "node": -1,
+                "role": "wait",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+            {
+                # Five-second pause for app launch + splash / ad load.
+                # Two seconds (``wait_long``) and three seconds are both
+                # sometimes too short for apps that show a full-screen
+                # ad before the home screen (闲鱼 / 淘宝 / 高德地图 all
+                # do this on cold start, and on a slow network the ad
+                # video can take 4–5 s to finish); without a dedicated
+                # longer wait Jev either taps on the ad creative or
+                # picks the post-ad screen as the baseline observation.
+                # The LLM planner is explicitly told to insert a
+                # ``WAIT_LONGER`` step right after every ``LAUNCH_APP``
+                # (see ``_PLAN_SYSTEM`` in ``llm.py``).
+                "id": "wait_longer",
+                "kind": "wait",
+                "label": "等待 5 秒（启动广告 / 启动页）",
+                "node": -1,
+                "role": "wait",
+                "value": "",
+                "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+            },
+        ]
+    )
+    return actions
+
+
+# How long each ``wait`` / ``wait_long`` / ``wait_longer`` action sleeps.
+# Kept in one place so :meth:`AutoX.act` and tests share the same source
+# of truth. New wait tiers must be added here AND in :data:`_synthetic_actions`
+# above; the ``act`` dispatch below is keyed by ``action["id"]``.
+_WAIT_DURATIONS = {
+    "wait": 0.1,
+    "wait_long": 2.0,
+    "wait_longer": 5.0,
+}
 
 
 def _build_text(ui_tree: dict) -> str:
@@ -618,11 +832,98 @@ class AutoX:
         # screen and ``page_changed`` comes back ``False``. (The browser
         # harness gets this for free via its observe settle loop.)
         self.settle_s = settle_s
+        # Installed apps are probed once at construction so the
+        # LAUNCH_APP synthetic actions always reflect what's actually on
+        # the device. The probe is best-effort — when the MCP build
+        # doesn't ship ``list_apps`` (or the phone is unreachable), we
+        # fall back to the curated :data:`_KNOWN_APPS` list.
+        # Installed apps are probed in :meth:`_ensure_installed_apps`,
+        # which populates both ``installed_apps`` and ``launch_apps`` in
+        # one shot (the second is the LAUNCH_APP surface after applying
+        # the optional ``LAUNCH_APP_ALLOWLIST`` filter). Declaring them
+        # here as attributes documents the type/shape and keeps
+        # :func:`hasattr` happy for ``self.launch_apps`` reads scattered
+        # across the codebase; we must NOT reassign ``launch_apps``
+        # below ``_ensure_installed_apps()`` because the call already
+        # set it — re-assigning to ``[]`` here would silently drop every
+        # installed app and leave the Jev payload showing only the
+        # curated :data:`_KNOWN_APPS` list.
+        self.installed_apps: list[dict] = []
+        self.launch_apps: list[dict] = []
+        self._installed_apps_fetched = False
+        self._ensure_installed_apps()
+        # Cache the latest observation's elements so callers can ask
+        # "what would Jev see right now" without re-running observe.
+        self._last_actions: list = []
+
+    @staticmethod
+    def _filter_launch_apps(installed: list[dict]) -> list[dict]:
+        """Apply ``LAUNCH_APP_ALLOWLIST`` env filtering.
+
+        The env var is a comma-separated package list. Entries prefixed
+        with ``-`` are removed (after the allowlist is applied). An
+        empty string means "no filtering", so the default behaviour
+        (no env var) keeps every installed app.
+        """
+        raw = (os.environ.get("LAUNCH_APP_ALLOWLIST") or "").strip()
+        if not raw or not installed:
+            return installed
+        allow: set[str] = set()
+        deny: set[str] = set()
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            if token.startswith("-"):
+                deny.add(token[1:])
+            else:
+                allow.add(token)
+        out = []
+        for row in installed:
+            pkg = row.get("package") or ""
+            if allow and pkg not in allow:
+                continue
+            if pkg in deny:
+                continue
+            out.append(row)
+        return out or installed
+
+    def list_installed_apps(self) -> list[dict]:
+        """Public accessor used by :func:`mobile_jev_ultrafast.llm.plan_task`.
+
+        Probes the device on first call; caches for the lifetime of the
+        ``AutoX`` instance. Returns a copy so callers can't mutate the
+        cache.
+        """
+        self._ensure_installed_apps()
+        return list(self.installed_apps or [])
+
+    def _ensure_installed_apps(self) -> None:
+        """Probe the MCP for installed apps if we haven't already.
+
+        Wrapped in a one-shot guard so the round-trip only happens once
+        per ``AutoX`` lifetime. Failures degrade to ``[]`` and the
+        LAUNCH_APP surface falls back to :data:`_KNOWN_APPS`.
+        """
+        if self._installed_apps_fetched:
+            return
+        self._installed_apps_fetched = True
+        try:
+            self.installed_apps = self.mcp.installed_apps() or []
+        except Exception as exc:  # noqa: BLE001
+            log = __import__("logging").getLogger(__name__)
+            log.debug("installed_apps probe failed: %s", exc)
+            self.installed_apps = []
+        self.launch_apps = self._filter_launch_apps(self.installed_apps or [])
 
     # --- observation ------------------------------------------------------
 
     def _build_state(self, ui_tree: dict, screenshot: str | None = None) -> dict:
-        actions = _build_actions(ui_tree)
+        # Make sure we have the LAUNCH_APP list before we build the
+        # action table — the very first ``observe()`` would otherwise
+        # surface only the curated :data:`_KNOWN_APPS` entries.
+        self._ensure_installed_apps()
+        actions = _build_actions(ui_tree, launch_apps=self.launch_apps)
         text = _build_text(ui_tree)
         w, h = self.screen_w, self.screen_h
         marker = [
@@ -680,7 +981,8 @@ class AutoX:
         package = _package_name(ui_tree)
         activity = _activity_name(ui_tree)
         w, h = self.screen_w, self.screen_h
-        actions = list(ocr_actions) + _synthetic_actions()
+        self._ensure_installed_apps()
+        actions = list(ocr_actions) + _synthetic_actions(launch_apps=self.launch_apps)
         state = {
             "url": f"{package}/{activity}",
             "title": activity,
@@ -722,6 +1024,18 @@ class AutoX:
             current = self.observe(screenshot=False)
         except Exception:
             return False
+        # Gestures (scroll / swipe / key) only depend on the screen being
+        # the same kind of activity — an ad banner or toast flipping
+        # between observe() calls must NOT invalidate a swipe, otherwise
+        # scroll_down / scroll_up get caught by ``StalePage`` on app
+        # home pages whose banner ad rotates every few seconds. Tighten
+        # the check for clicks / fills so a stale element is still
+        # detected (those need the action label to be present).
+        if action is not None and action.get("kind") in {"scroll", "swipe", "key", "wait", "double_tap", "launch"}:
+            return (
+                current.get("package") == page.get("package")
+                and current.get("activity") == page.get("activity")
+            )
         # Whole-screen semantic match. jev-ultrafast compares a list of
         # (URL, scroll, viewport, safe-form-values, semantics). Android
         # has no equivalent of "safe form values" so the marker covers
@@ -738,14 +1052,88 @@ class AutoX:
         cx = rect["x"] + rect["w"] // 2
         cy = rect["y"] + rect["h"] // 2
         if kind == "wait":
-            time.sleep(0.1)
+            # Tiered wait: 0.1s for trivial UI refresh, 2s for animations
+            # / startup, 5s for the cold-launch splash + ad that
+            # ``LAUNCH_APP`` triggers. Durations are looked up in
+            # :data:`_WAIT_DURATIONS` so a new tier only needs to be
+            # added there (and to :data:`_synthetic_actions`).
+            time.sleep(_WAIT_DURATIONS.get(action["id"], 0.1))
             return {"executed": action["id"]}
         if kind == "scroll":
+            # jev-ultrafast's ``scroll_up`` / ``scroll_down`` are named
+            # after the *content* direction (deltaY<0 == wheel-up ==
+            # viewport moves up the page). On a touchscreen the same
+            # content-direction map would require a *opposite* finger
+            # gesture, which clashes with the standard Chinese UX
+            # vocabulary users actually use: ``"上滑"`` describes the
+            # **finger** direction (手指从下往上滑), and Jev maps that
+            # onto ``SCROLL_UP`` (``"向上滚动"``).
+            #
+            # We resolve the clash by treating the action name as the
+            # *gesture* direction: ``scroll_up`` is a finger drag from
+            # the bottom of the screen to the top, and ``scroll_down``
+            # is the mirror. This matches every Chinese-speaking user's
+            # intuition and what every other Android automation tool
+            # does. (The previous code did the opposite and triggered
+            # pull-to-refresh on Taobao whenever someone said "手机上滑".)
+            x_mid = self.screen_w // 2
+            # Keep the stroke inside [0.20h, 0.80h] so we never start in
+            # the status bar (top ~0.08h) or end in the gesture-nav strip
+            # (bottom ~0.08h); both can swallow the gesture.
+            y_top = int(self.screen_h * 0.20)
+            y_bot = int(self.screen_h * 0.80)
             if action["delta"] > 0:
-                y1, y2 = int(self.screen_h * 0.75), int(self.screen_h * 0.25)
+                # ``scroll_down`` (delta=+600): finger drags downward,
+                # top→bottom.
+                y1, y2 = y_top, y_bot
             else:
-                y1, y2 = int(self.screen_h * 0.25), int(self.screen_h * 0.75)
-            self.mcp.swipe(self.screen_w // 2, y1, self.screen_w // 2, y2, duration=300)
+                # ``scroll_up`` (delta=-600): finger drags upward,
+                # bottom→top.
+                y1, y2 = y_bot, y_top
+            self.mcp.swipe(x_mid, y1, x_mid, y2, duration=_swipe_duration_ms())
+            time.sleep(self.settle_s)
+            return {"executed": action["id"]}
+        if kind == "swipe":
+            # Horizontal swipes are used to flip between launcher pages
+            # and to dismiss bottom sheets via edge-gesture.
+            direction = action.get("direction") or ""
+            if direction == "left":
+                x1, x2 = int(self.screen_w * 0.85), int(self.screen_w * 0.15)
+            elif direction == "right":
+                x1, x2 = int(self.screen_w * 0.15), int(self.screen_w * 0.85)
+            else:
+                x1, x2 = int(self.screen_w * 0.5), int(self.screen_w * 0.5)
+            y_mid = self.screen_h // 2
+            self.mcp.swipe(x1, y_mid, x2, y_mid, duration=_swipe_duration_ms())
+            time.sleep(self.settle_s)
+            return {"executed": action["id"]}
+        if kind == "key":
+            key = action.get("key") or ""
+            if key == "home":
+                self.mcp.press_home()
+            elif key == "back":
+                self.mcp.press_back()
+            elif key == "recents":
+                self.mcp.press_recents()
+            else:
+                raise ValueError(f"Unknown key action {key!r}")
+            time.sleep(self.settle_s)
+            return {"executed": action["id"]}
+        if kind == "launch":
+            pkg = action.get("value") or action.get("package") or ""
+            if not pkg:
+                raise ValueError("LAUNCH_APP action requires a package name")
+            self.mcp.app_control(action="launch", package=pkg)
+            # App launches need a longer settle than taps — the system
+            # shows the launch animation, then the new app draws its
+            # first frame. ``settle_s`` is rarely enough.
+            time.sleep(max(self.settle_s, 1.0))
+            return {"executed": action["id"]}
+        if kind == "double_tap":
+            self.mcp.tap(cx, cy)
+            time.sleep(0.05)
+            self.mcp.tap(cx, cy)
+            time.sleep(self.settle_s)
             return {"executed": action["id"]}
         if kind == "click":
             self.mcp.tap(cx, cy)
@@ -916,7 +1304,7 @@ class FakeAutoX:
         actions = [_mock_action_dict(a) for a in m["actions"]]
         for i, a in enumerate(actions, start=1):
             a["id"] = f"e{i}"
-        actions.extend(_synthetic_actions())
+        actions.extend(_synthetic_actions(launch_apps=None))
         page = {
             "url": f"com.example.app/{m['activity']}",
             "title": m["title"],
@@ -952,6 +1340,28 @@ class FakeAutoX:
         kind = action["kind"]
         if kind == "scroll":
             return {"executed": action["id"]}
+        if kind == "swipe":
+            return {"executed": action["id"]}
+        if kind == "key":
+            # ``press_home`` returns the mock to its home screen so the
+            # next observe() looks like a fresh launcher; back/recents
+            # are no-ops since the mock has no stack.
+            if action.get("key") == "home":
+                self._state_name = "home"
+            return {"executed": action["id"]}
+        if kind == "launch":
+            pkg = action.get("value") or ""
+            # Map a couple of well-known packages to mock screens so the
+            # loop is testable without a phone.
+            route = {
+                "com.android.settings": "settings",
+                "com.example.app": "home",
+            }.get(pkg)
+            if route:
+                self._state_name = route
+            return {"executed": action["id"]}
+        if kind == "double_tap":
+            return {"executed": action["id"]}
         # Sound screen: tapping any of the three radios updates the
         # tracked ring mode so the next ``observe()`` reflects it.
         # This includes taps on the clickable *row* (whose inherited
@@ -971,6 +1381,12 @@ class FakeAutoX:
                     tmpl.value = text or ""
                     return {"executed": action["id"]}
         return {"executed": action["id"]}
+
+    def list_installed_apps(self) -> list[dict]:
+        return [
+            {"label": "设置", "package": "com.android.settings", "system": True},
+            {"label": "Demo", "package": "com.example.app", "system": False},
+        ]
 
     def close(self):
         pass

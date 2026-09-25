@@ -126,9 +126,14 @@ def _make_autox_with(call_responses):
     info at construction time.
     """
     # The client's constructor calls ``deviceInfo`` once via
-    # ``display_size()``. Empty payload → fallback to 1080x2400. The
-    # rest of ``call_responses`` is returned in order.
-    transport = _CapturingTransport([_ok_response({})] + list(call_responses))
+    # ``display_size()`` and probes ``list_apps`` once for the
+    # LAUNCH_APP surface. We pre-pend an empty payload for each so
+    # callers can keep budgeting calls the way they used to.
+    queue = (
+        [_ok_response({}), _ok_response({"count": 0, "apps": []})]
+        + list(call_responses)
+    )
+    transport = _CapturingTransport(queue)
     http = httpx.Client(http2=False, timeout=5, transport=transport)
     client = MCPClient("http://mcp.test/mcp", initialize=False, client=http)
     return AutoX("device:test", mcp=client), transport
@@ -224,7 +229,9 @@ def test_autox_act_tap_calls_mcp_tap():
     # display_size only fires ``device_info`` once at construction time;
     # tools/list is filtered out and never reaches the captured list.
     assert names[:1] == ["device_info"]
-    assert names[1:3] == ["get_ui_tree", "get_ui_tree"]
+    # ``list_apps`` is the LAUNCH_APP probe (one-shot at construction);
+    # the two ``get_ui_tree`` calls are observe() then act()'s fresh check.
+    assert names[1:4] == ["list_apps", "get_ui_tree", "get_ui_tree"]
     assert names[-1] == "tap"
     expected_x = click_action["rect"]["x"] + click_action["rect"]["w"] // 2
     expected_y = click_action["rect"]["y"] + click_action["rect"]["h"] // 2
@@ -249,9 +256,11 @@ def test_autox_act_fill_calls_set_text():
     fill_action = next(a for a in page["actions"] if a["kind"] == "fill")
     auto.act(fill_action, page, text="hello")
     tool_names = [name for name, _args in tx.calls]
-    # device_info, get_ui_tree, get_ui_tree, tap (focus), run_script (fallback)
+    # device_info, list_apps (LAUNCH_APP probe), get_ui_tree (observe),
+    # get_ui_tree (act's fresh check), tap (focus), run_script (setText fallback)
     assert tool_names == [
         "device_info",
+        "list_apps",
         "get_ui_tree",
         "get_ui_tree",
         "tap",
@@ -259,4 +268,181 @@ def test_autox_act_fill_calls_set_text():
     ]
     assert "setText(" in tx.calls[-1][1]["script"]
     assert "hello" in tx.calls[-1][1]["script"]
+    auto.close()
+
+
+def _run_scroll_action(delta: int):
+    """Synthesize a scroll action and run it through ``AutoX.act``.
+
+    ``AutoX.act`` calls ``observe()`` first for the freshness guard, so
+    the queue needs exactly two ``_COMPACT_TREE`` responses: the first
+    for our explicit ``auto.observe()`` and the second for the
+    freshness recheck. The actual ``swipe`` call then rides the empty
+    fallback like the existing tap test does.
+    """
+    responses = [_ok_response(_COMPACT_TREE), _ok_response(_COMPACT_TREE)]
+    auto, tx = _make_autox_with(responses)
+    page = auto.observe()
+    scroll_action = {
+        "id": "scroll_down" if delta > 0 else "scroll_up",
+        "kind": "scroll",
+        "label": "向下滚动" if delta > 0 else "向上滚动",
+        "delta": delta,
+        "node": -1,
+        "role": "scroll",
+        "value": "",
+        "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+    }
+    auto.act(scroll_action, page)
+    last = tx.calls[-1]
+    auto.close()
+    return last
+
+
+def test_autox_act_scroll_up_swipes_finger_bottom_to_top():
+    """``SCROLL_UP`` must execute a finger swipe *up* (bottom→top).
+
+    Regression for the Taobao pull-to-refresh bug: the previous code
+    sent a top→bottom swipe (content-direction) when the user asked
+    for "手机上滑1下", which interpreted "上滑" as finger direction.
+    """
+    name, args = _run_scroll_action(delta=-600)
+    assert name == "swipe"
+    # The screen is 1080x2400 in the test fixture; 20% / 80% margins
+    # keep the stroke inside the safe area.
+    assert args["x1"] == 540
+    assert args["y1"] == int(2400 * 0.80)
+    assert args["x2"] == 540
+    assert args["y2"] == int(2400 * 0.20)
+    # y1 must be below y2 → finger moves upward.
+    assert args["y1"] > args["y2"]
+
+
+def test_autox_act_scroll_down_swipes_finger_top_to_bottom():
+    """``SCROLL_DOWN`` is the mirror of ``scroll_up``: top→bottom."""
+    name, args = _run_scroll_action(delta=600)
+    assert name == "swipe"
+    assert args["x1"] == 540
+    assert args["y1"] == int(2400 * 0.20)
+    assert args["x2"] == 540
+    assert args["y2"] == int(2400 * 0.80)
+    assert args["y1"] < args["y2"]
+
+
+def test_autox_act_scroll_uses_env_swipe_duration(monkeypatch):
+    """``AUTOX_SWIPE_DURATION`` overrides the default 400ms duration."""
+    monkeypatch.setenv("AUTOX_SWIPE_DURATION", "650")
+    name, args = _run_scroll_action(delta=-600)
+    assert name == "swipe"
+    assert args["duration"] == 650
+
+
+def test_autox_act_scroll_falls_back_when_duration_garbage(monkeypatch):
+    """Malformed env values must not crash the act loop."""
+    monkeypatch.setenv("AUTOX_SWIPE_DURATION", "not-a-number")
+    name, args = _run_scroll_action(delta=-600)
+    assert name == "swipe"
+    assert args["duration"] == 400
+
+
+def test_autox_act_horizontal_swipe_uses_safe_margins():
+    """The horizontal ``swipe`` path also picks up the new duration."""
+    responses = [_ok_response(_COMPACT_TREE), _ok_response(_COMPACT_TREE)]
+    auto, tx = _make_autox_with(responses)
+    page = auto.observe()
+    swipe_action = {
+        "id": "swipe_left",
+        "kind": "swipe",
+        "label": "左滑",
+        "node": -1,
+        "role": "swipe",
+        "value": "",
+        "direction": "left",
+        "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+    }
+    auto.act(swipe_action, page)
+    name, args = tx.calls[-1]
+    auto.close()
+    assert name == "swipe"
+    assert args["duration"] == 400
+    assert args["x1"] > args["x2"]  # left = right→left
+
+
+def test_autox_fresh_tolerates_banner_change_for_gestures():
+    """Scroll / swipe / key must NOT be invalidated by ad-banner churn.
+
+    Regression for the 「下滑 1 下」 bug where the Taobao home page's
+    rotating banner ad flipped the ``marker`` between observe() and
+    act(), which used to raise :class:`StalePage` and silently drop
+    the swipe on the floor. The fix lets gestures pass when only the
+    banner text changed and ``package`` + ``activity`` are unchanged.
+    """
+    # Two trees that share package / activity / structure but differ
+    # only in the banner text (mirrors a rotating ad).
+    tree_banner_a = {
+        **_COMPACT_TREE,
+        "children": [
+            *_COMPACT_TREE["children"],
+            {
+                "c": "TextView",
+                "t": "banner-ad-rotating-slot-A",
+                "b": [0, 0, 1080, 100],
+                "a": "",
+                "children": [],
+            },
+        ],
+    }
+    tree_banner_b = {
+        **_COMPACT_TREE,
+        "children": [
+            *_COMPACT_TREE["children"],
+            {
+                "c": "TextView",
+                "t": "banner-ad-rotating-slot-B",
+                "b": [0, 0, 1080, 100],
+                "a": "",
+                "children": [],
+            },
+        ],
+    }
+    # Two observes (the explicit one + the fresh recheck inside act())
+    # return different banner texts but the same package / activity.
+    responses = [_ok_response(tree_banner_a), _ok_response(tree_banner_b)]
+    auto, tx = _make_autox_with(responses)
+    page = auto.observe()
+    scroll_action = {
+        "id": "scroll_down",
+        "kind": "scroll",
+        "label": "向下滚动",
+        "delta": 600,
+        "node": -1,
+        "role": "scroll",
+        "value": "",
+        "rect": {"x": 0, "y": 0, "w": 0, "h": 0},
+    }
+    # Must NOT raise StalePage — the gesture still executes.
+    auto.act(scroll_action, page)
+    name, args = tx.calls[-1]
+    auto.close()
+    assert name == "swipe", f"expected swipe to fire despite banner change; got {name}"
+    assert args["y1"] < args["y2"]  # scroll_down = top→bottom
+
+
+def test_autox_fresh_still_rejects_marker_change_for_clicks():
+    """A click action keeps the strict marker check.
+
+    Gestures and clicks should not share a check: a click target that
+    disappeared while we were deciding must still be rejected so we
+    don't tap the wrong element.
+    """
+    responses = [_ok_response(_COMPACT_TREE), _ok_response(_COMPACT_TREE)]
+    auto, _tx = _make_autox_with(responses)
+    page = auto.observe()
+    # ``fresh(page)`` without an action argument keeps the original
+    # strict behaviour; same screen passes, divergent screen fails.
+    assert auto.fresh(page) is True
+    # Tamper with the page to simulate a layout change.
+    mutated = dict(page)
+    mutated["marker"] = list(page["marker"]) + ["tampered"]
+    assert auto.fresh(mutated) is False
     auto.close()

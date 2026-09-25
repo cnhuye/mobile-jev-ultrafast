@@ -94,3 +94,119 @@ def test_agent_command_blocks_when_stopped():
             agent.command("predict")
     finally:
         agent.close()
+
+
+def test_agent_short_circuits_on_high_confidence_task_complete(monkeypatch):
+    """``task_complete=finish`` above the threshold stops the loop.
+
+    Mirrors the operational-goal case (e.g. 「上滑 1 下」): one action
+    executes, then the model marks the step as terminal, and the
+    agent loop must return ``status=done`` instead of feeding a
+    second predict.
+    """
+    fake = FakeAutoX()
+
+    def fake_choose(page, goal, history, *, task_plan=None, relevant_apps=None):
+        # ``SCROLL_UP`` lives in ``controls`` (it's a synthetic action,
+        # not a clickable element), so target is ``None`` and the
+        # executor picks the action directly off ``action["id"]``.
+        return {
+            "choice": "scroll_up",
+            "operation": "SCROLL_UP",
+            "target": None,
+            "confidence": 0.9,
+            "probabilities": {"scroll_up": 1.0},
+            "operation_probabilities": {"SCROLL_UP": 1.0},
+            "target_probabilities": {},
+            "target_confidence": None,
+            "task_complete": "finish",
+            "task_complete_confidence": 0.92,
+            "task_complete_probabilities": {"continue": 0.08, "finish": 0.92},
+            "raw_answers": {},
+            "model": "fake",
+            "usage": {},
+            "latency_ms": 0,
+            "request": {},
+            "backend": "fake",
+        }
+
+    monkeypatch.setattr("mobile_jev_ultrafast.agent.choose", fake_choose)
+
+    with Agent("demo://x", "上滑 1 下", device=fake) as agent:
+        for _state in agent.run():
+            pass
+
+    # Exactly one decision reached ``done`` — no second predict fires
+    # because the task_complete head short-circuits the loop.
+    assert agent.state["status"] == "done"
+    assert len(agent.state["decisions"]) == 1
+    # The executed action records the task_complete head so downstream
+    # consumers can see why the loop ended.
+    last_action = agent.state["history"][-1]
+    assert last_action["task_complete"] == "finish"
+    assert last_action["task_complete_confidence"] == pytest.approx(0.92)
+
+
+def test_agent_keeps_looping_when_task_complete_finish_is_low_confidence(monkeypatch):
+    """Below-threshold ``task_complete=finish`` does NOT short-circuit.
+
+    Guards against accidentally trusting low-confidence signals — a
+    noisy Jev reply that says finish=0.4 must still let the loop run.
+    """
+    fake = FakeAutoX()
+    calls = {"n": 0}
+
+    def fake_choose(page, goal, history, *, task_plan=None, relevant_apps=None):
+        calls["n"] += 1
+        if calls["n"] >= 4:
+            # Force an exit on the 4th call so the test doesn't loop forever.
+            return {
+                "choice": "DONE",
+                "operation": "DONE",
+                "target": None,
+                "confidence": 1.0,
+                "probabilities": {"DONE": 1.0},
+                "operation_probabilities": {"DONE": 1.0},
+                "target_probabilities": {},
+                "target_confidence": None,
+                "task_complete": "finish",
+                "task_complete_confidence": 1.0,
+                "task_complete_probabilities": {"continue": 0.0, "finish": 1.0},
+                "raw_answers": {},
+                "model": "fake",
+                "usage": {},
+                "latency_ms": 0,
+                "request": {},
+                "backend": "fake",
+            }
+        # Low confidence finish — should NOT stop the loop.
+        return {
+            "choice": "scroll_up",
+            "operation": "SCROLL_UP",
+            "target": None,
+            "confidence": 0.9,
+            "probabilities": {"scroll_up": 1.0},
+            "operation_probabilities": {"SCROLL_UP": 1.0},
+            "target_probabilities": {},
+            "target_confidence": None,
+            "task_complete": "finish",
+            "task_complete_confidence": 0.4,  # below the 0.7 threshold
+            "task_complete_probabilities": {"continue": 0.6, "finish": 0.4},
+            "raw_answers": {},
+            "model": "fake",
+            "usage": {},
+            "latency_ms": 0,
+            "request": {},
+            "backend": "fake",
+        }
+
+    monkeypatch.setattr("mobile_jev_ultrafast.agent.choose", fake_choose)
+
+    with Agent("demo://x", "上滑 1 下", device=fake) as agent:
+        for _state in agent.run():
+            pass
+
+    # The low-confidence finish must NOT short-circuit; the loop runs
+    # until our forced DONE on the 4th call.
+    assert calls["n"] >= 2, f"expected multiple predicts, got {calls['n']}"
+    assert agent.state["status"] == "done"

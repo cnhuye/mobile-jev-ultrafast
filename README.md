@@ -103,6 +103,7 @@ echo "Open Settings and tap About phone" | uv run autox-run   # goal from stdin
 | Flag | What it does |
 |------|--------------|
 | `--show-elements` | print the indexed element table Jev is choosing from |
+| `-v` / `-vv` / `-vvv` | per-decision trace / + full Jev + aux-LLM payloads / + element-table & deadlock-window dumps (stderr) |
 | `--ocr` | enable the OCR fallback for apps that block accessibility (WeChat, …) |
 | `--max-steps N` | raise or lower the action budget (default 60) |
 | `--settle S` | pause after each tap so the next observation isn't premature (default 0.35s) |
@@ -112,6 +113,13 @@ echo "Open Settings and tap About phone" | uv run autox-run   # goal from stdin
 
 `.env` is loaded automatically from the current directory or any parent. Use
 `--no-env` to opt out.
+
+Verbose tracing goes to **stderr**, so `--json` keeps stdout parseable:
+
+```bash
+uv run autox-run -v  "scroll up once"      # observation → decision → action per step
+uv run autox-run -vv "scroll up once" 2>trace.log   # + full Jev request/response
+```
 
 ### Inspect a run
 

@@ -262,3 +262,66 @@ def test_scripted_backend_matches_chinese_labels():
     decision = _choose_scripted(page, "把它切换成「振动」。", [])
     assert decision["operation"] == "CLICK"
     assert decision["choice"] == "e2"
+
+
+# ---------------------------------------------------------------------------
+# task_complete head (operational vs destination goals)
+# ---------------------------------------------------------------------------
+
+from mobile_jev_ultrafast.model import (  # noqa: E402  - grouped for clarity
+    TASK_COMPLETE_CHOICES,
+    TASK_COMPLETE_FINISH_THRESHOLD,
+    _scripted_task_complete,
+    _terminal_task_complete,
+)
+
+
+def test_task_complete_head_carries_three_required_keys():
+    decision = _choose_scripted(FakeAutoX().observe(), "上滑 1 下", [])
+    for key in ("task_complete", "task_complete_confidence", "task_complete_probabilities"):
+        assert key in decision, f"missing {key!r} in scripted decision"
+    assert decision["task_complete"] in TASK_COMPLETE_CHOICES
+    assert set(decision["task_complete_probabilities"]) == set(TASK_COMPLETE_CHOICES)
+    assert 0.0 <= decision["task_complete_confidence"] <= 1.0
+
+
+def test_scripted_task_complete_returns_finish_for_operational_goals():
+    # Counting verbs ("下" / "次" / "times") combined with an action verb
+    # mark the goal as operational: performing the action is the goal.
+    assert _scripted_task_complete("上滑 1 下", "scroll_up")["task_complete"] == "finish"
+    assert _scripted_task_complete("向下滑 3 次", "scroll_down")["task_complete"] == "finish"
+    assert _scripted_task_complete("点击那个按钮 1 次", "click")["task_complete"] == "finish"
+    assert _scripted_task_complete("double tap twice", "double_tap")["task_complete"] == "finish"
+
+
+def test_scripted_task_complete_stays_continue_for_destination_goals():
+    # Destination verbs dominate: even if the goal also names a tap /
+    # click, the user wants to reach a screen first.
+    assert _scripted_task_complete("Open Settings and tap About", "click")["task_complete"] == "continue"
+    assert _scripted_task_complete("打开设置后看看关于手机页面", "click")["task_complete"] == "continue"
+    assert _scripted_task_complete("找到那个按钮", "click")["task_complete"] == "continue"
+
+
+def test_scripted_task_complete_requires_count_for_click_but_not_for_scroll():
+    # Bare scroll / press-back gestures read as one-shot: the user wants
+    # exactly that action. A bare "tap X" needs an explicit count,
+    # because "tap About" alone usually means "find and open About".
+    assert _scripted_task_complete("返回", "press_back")["task_complete"] == "finish"
+    assert _scripted_task_complete("上滑", "scroll_up")["task_complete"] == "finish"
+    assert _scripted_task_complete("tap About", "click")["task_complete"] == "continue"
+    assert _scripted_task_complete("tap About twice", "click")["task_complete"] == "finish"
+
+
+def test_terminal_task_complete_is_full_finish():
+    tc = _terminal_task_complete()
+    assert tc["task_complete"] == "finish"
+    assert tc["task_complete_confidence"] == 1.0
+    assert tc["task_complete_probabilities"]["finish"] == 1.0
+    assert tc["task_complete_probabilities"]["continue"] == 0.0
+
+
+def test_threshold_constant_is_a_high_value():
+    # ``task_complete=finish`` only short-circuits the loop when
+    # confidence clears this bar; lowering it would risk premature
+    # DONE on ambiguous decisions.
+    assert TASK_COMPLETE_FINISH_THRESHOLD >= 0.5

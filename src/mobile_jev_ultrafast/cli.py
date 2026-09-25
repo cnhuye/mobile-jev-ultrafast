@@ -79,6 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "examples:\n"
             "  autox-run \"打开设置，把铃声模式切换成振动\"\n"
+            "  autox-run -v \"手机屏幕上滑1下\"          # per-step trace to stderr\n"
+            "  autox-run -vv \"打开微信\" 2>trace.log    # + full Jev/LLM payloads\n"
             "  autox-run --show-elements \"Open WeChat and open Contacts\"\n"
             "  autox-run --fake \"Open Settings and tap About\"\n"
             "  autox-run --json \"...\" > run.json\n"
@@ -115,6 +117,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable the OCR fallback for a11y-blocked apps.",
     )
     parser.add_argument(
+        "--plan/--no-plan",
+        dest="llm_plan",
+        default=None,
+        help="Pre-task LLM planning: generate a step plan + relevant APP list "
+        "(default: read AGENT_LLM_PLAN env var, off if unset).",
+    )
+    parser.add_argument(
+        "--llm-fallback/--no-llm-fallback",
+        dest="llm_fallback",
+        default=None,
+        help="Auxiliary LLM deadlock breaker (default: AGENT_LLM_FALLBACK env var).",
+    )
+    parser.add_argument(
+        "--summarize/--no-summarize",
+        dest="llm_summary",
+        default=None,
+        help="Generate a post-run summary via the auxiliary LLM "
+        "(default: AGENT_LLM_SUMMARY env var).",
+    )
+    parser.add_argument(
         "--settle",
         type=float,
         default=0.35,
@@ -149,6 +171,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-env",
         action="store_true",
         help="Do not auto-load .env.",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        dest="verbose",
+        action="count",
+        default=0,
+        help=(
+            "Increase trace verbosity (repeatable). "
+            "-v logs each observation / decision / action / deadlock; "
+            "-vv adds the full Jev and auxiliary-LLM request/response payloads; "
+            "-vvv adds the element table and structured decision dumps. "
+            "Traces go to stderr, so --json output stays clean."
+        ),
     )
     parser.add_argument(
         "--quiet",
@@ -209,6 +244,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     env_file = None if args.no_env else load_env()
+    # ``--verbose`` controls the shared stderr trace. Configure it before
+    # anything can log so the very first observation is captured too.
+    from . import verbose as verbose_module
+
+    verbose_module.configure(args.verbose)
     if args.max_steps is not None:
         # ``agent.py`` does ``from .questions import MAX_STEPS``, so it
         # holds its own binding — patch the module the loop reads.
@@ -223,21 +263,42 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.json and not args.quiet:
         if env_file:
-            print(f"env:    {env_file}")
+            print(f"env:    {env_file}", flush=True)
         if not args.fake:
-            print(f"device: {os.environ.get('AUTOX_MCP_URL', '(AUTOX_MCP_URL unset)')}")
+            print(
+                f"device: {os.environ.get('AUTOX_MCP_URL', '(AUTOX_MCP_URL unset)')}",
+                flush=True,
+            )
         else:
-            print("device: FakeAutoX (offline)")
-        print(f"goal:   {goal}")
-        print()
+            print("device: FakeAutoX (offline)", flush=True)
+        print(f"goal:   {goal}", flush=True)
+        if args.verbose:
+            print(f"trace:  -{'v' * args.verbose} (stderr)", file=sys.stderr, flush=True)
+        print(flush=True)
 
     device = make_device(args)
+
+    def _opt(name, envvar, default=False):
+        """CLI flag → env var → default resolver."""
+        v = getattr(args, name, None)
+        if v is None:
+            return os.environ.get(envvar, "1" if default else "0") == "1"
+        return bool(v)
+
+    llm_plan = _opt("llm_plan", "AGENT_LLM_PLAN")
+    llm_fallback = _opt("llm_fallback", "AGENT_LLM_FALLBACK")
+    llm_summary = _opt("llm_summary", "AGENT_LLM_SUMMARY")
+
     agent = Agent(
         url=args.label,
         goals=goal,
         device=device,
         screenshots=args.record is not None,
         record_dir=args.record,
+        llm_plan=llm_plan,
+        llm_fallback=llm_fallback,
+        llm_summary=llm_summary,
+        verbose_level=args.verbose,
     )
     started = len(agent.state["history"])
     loop_error: str | None = None
@@ -289,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
         if snapshot.get("decisions"):
             ops = [d["operation"] for d in snapshot["decisions"]]
             print(f"ops:    {' -> '.join(ops)}")
+        if snapshot.get("summary"):
+            print(f"summary: {snapshot['summary'].get('summary', '')}")
 
     if status == "done":
         return 0

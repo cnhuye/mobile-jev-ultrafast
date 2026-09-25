@@ -250,6 +250,32 @@ def test_set_clipboard_falls_back_to_run_script():
     assert "payload" in captured["args"]["script"]
 
 
+# ---------- app_control --------------------------------------------------
+
+def test_app_control_sends_package_name_not_package():
+    """MCP ``app_control`` schema requires ``packageName``; sending ``package``
+    returns the server-side error ``packageName required for action 'launch'``.
+
+    This regression test guards the wire-level field name — the live phone
+    rejects the call otherwise (see ``docs/MCP_ENHANCEMENTS_REQUIREMENTS_20260925.md``).
+    """
+    captured = {"args": None}
+
+    def handler(request: httpx.Request):
+        body = json.loads(request.content)
+        method = body.get("method")
+        if method == "tools/list":
+            return _tools_list_response_empty()
+        if method == "tools/call":
+            captured["args"] = body["params"]["arguments"]
+        return _tool_call_response({"ok": True})
+
+    client = _make_capturing_client(handler)
+    client.app_control(action="launch", package="com.android.settings")
+    assert captured["args"] == {"action": "launch", "packageName": "com.android.settings"}
+    assert "package" not in captured["args"]
+
+
 # ---------- transport-level guarantees --------------------------------------
 
 def test_initialize_round_trip_is_optional():
